@@ -75,6 +75,20 @@ input[type=range]{width:100%;accent-color:var(--sign)}
 
 .toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:calc(100% - 32px);background:rgba(15,19,23,.92);border:1px solid var(--line);color:var(--fg);padding:9px 14px;border-radius:10px;font-size:14px;z-index:4;pointer-events:none;transition:opacity .25s}
 .toast.off{opacity:0}
+.info{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:12px;margin:0 auto;max-width:440px;background:rgba(15,19,23,.94);border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 16px;z-index:5;display:flex;gap:12px;align-items:center}
+.info .txt{flex:1;min-width:0}
+.info h2{margin:0;font:700 22px/1.05 var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.info p{margin:3px 0 0;font:500 14px/1.2 var(--display);color:var(--muted);font-variant-numeric:tabular-nums}
+.x{border:0;background:var(--panel-2);border-radius:10px;width:40px;height:40px;font-size:20px;line-height:1;flex:none}
+.d3title{flex:1;min-width:0}
+.d3title b{display:block;font:700 20px/1.1 var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3title span{font:500 13px/1.2 var(--display);color:var(--muted)}
+#d3map{flex:1;min-height:0;background:#1b2530;position:relative}
+.d3load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);z-index:2;pointer-events:none}
+.foot .btn[aria-pressed="true"]{background:var(--sign);color:var(--sign-ink)}
+.pin{font:700 15px/1 var(--display);background:var(--sign);color:var(--sign-ink);padding:6px 10px;border-radius:8px;position:relative;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.pin:after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--sign)}
+.me{font:700 12px/1 var(--display);letter-spacing:.08em;background:var(--bg);color:var(--fg);border:2px solid var(--sign);padding:4px 7px;border-radius:999px}
 
 .sheet{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
 .sheet .bar{display:flex;gap:8px;align-items:center;padding:10px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
@@ -111,6 +125,11 @@ input[type=range]{width:100%;accent-color:var(--sign)}
     </div>
   </div>
   <div class="toast off" id="toast"></div>
+  <div class="info" id="info" hidden>
+    <div class="txt"><h2 id="iName"></h2><p id="iMeta"></p></div>
+    <button class="btn primary" id="i3d">Bekijk in 3D</button>
+    <button class="x" id="iClose" aria-label="Sluiten">×</button>
+  </div>
 </div>
 
 <div class="dock">
@@ -138,6 +157,19 @@ input[type=range]{width:100%;accent-color:var(--sign)}
 </div>
 
 <input type="file" id="file" accept="image/*" hidden>
+
+<div class="sheet" id="d3Sheet" hidden>
+  <div class="bar">
+    <div class="d3title"><b id="d3Name"></b><span id="d3Meta"></span></div>
+    <button class="x" id="d3Close" aria-label="Sluiten">×</button>
+  </div>
+  <div id="d3map"><div class="d3load" id="d3Load">3D laden…</div></div>
+  <div class="foot">
+    <button class="btn" id="d3Me">Vanaf mij</button>
+    <button class="btn" id="d3Orbit" aria-pressed="false">Rondje</button>
+    <button class="btn" id="d3Top">Van boven</button>
+  </div>
+</div>
 
 <div class="sheet" id="mapSheet" hidden>
   <div class="bar">
@@ -300,7 +332,7 @@ function processPlaces(){
     let blk=-9;
     if(j>=0){blk=9;const jj=Math.min(j,rays.NS-1);for(const k of[-1,0,1]){const ii=(i+k+NR)%NR;blk=Math.min(blk,rays.cum[ii*rays.NS+jj])}}
     const visible=el>=blk-0.12*D2R;
-    out.push({name:t.name,kind,ele:isFinite(ele)?Math.round(ele):Math.round(g),d,az,el,visible,v:vec(az,el),
+    out.push({name:t.name,kind,lat:e.lat,lon:e.lon,ele:isFinite(ele)?Math.round(ele):Math.round(g),d,az,el,visible,v:vec(az,el),
       rank:kind==='peak'?(isFinite(ele)?ele:g):({city:4,town:3,village:2,hamlet:1}[kind]||0)});
   }
   return out;
@@ -440,9 +472,8 @@ cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',e=>{ptrs
 cv.addEventListener('wheel',e=>{e.preventDefault();S.f35=Math.max(10,Math.min(400,S.f35*Math.exp(-e.deltaY*0.0015)));syncSliders();draw()},{passive:false});
 function tap(cx,cy){
   const r=cv.getBoundingClientRect(),x=cx-r.left,y=cy-r.top;
-  const h=hits.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);if(!h)return;
-  const p=h.p,type=p.kind==='peak'?'top':({city:'stad',town:'plaats',village:'dorp',hamlet:'gehucht'}[p.kind]||'plaats');
-  toast(`${p.name} · ${type} · ${p.ele} m · ${km(p.d)} · ${Math.round(p.az*R2D)}°${p.visible?'':' · achter een rug'}`,4000);
+  const h=hits.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);if(!h){$('#info').hidden=true;return}
+  showInfo(h.p);
 }
 
 /* ---------- sliders ---------- */
@@ -550,6 +581,81 @@ $('#tSave').onclick=()=>{
     const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='bergblik.jpg';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
   },'image/jpeg',0.92);
 };
+
+/* ---------- info & 3D ---------- */
+let sel=null;
+const typeName=p=>p.kind==='peak'?'top':({city:'stad',town:'plaats',village:'dorp',hamlet:'gehucht'}[p.kind]||'plaats');
+const metaOf=p=>`${typeName(p)} · ${p.ele} m · ${km(p.d)} · ${Math.round(p.az*R2D)}°${p.visible?'':' · achter een rug'}`;
+function showInfo(p){sel=p;$('#iName').textContent=p.name;$('#iMeta').textContent=metaOf(p);$('#info').hidden=false}
+$('#iClose').onclick=()=>{$('#info').hidden=true};
+$('#i3d').onclick=()=>{if(sel)open3D(sel)};
+
+const ML='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl';
+function loadScript(src){return new Promise((res,rej)=>{const e=document.createElement('script');e.src=src;e.onload=res;e.onerror=rej;document.head.appendChild(e)})}
+function loadCSS(href){const l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.appendChild(l)}
+const STYLE={version:8,
+  glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources:{
+    sat:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19,attribution:'Beelden © Esri, Maxar, Earthstar Geographics'},
+    dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:14,attribution:'Hoogte: Mapzen/AWS'},
+    omt:{type:'vector',url:'https://tiles.openfreemap.org/planet'}
+  },
+  layers:[
+    {id:'sat',type:'raster',source:'sat'},
+    {id:'bld',type:'fill-extrusion',source:'omt','source-layer':'building',minzoom:13,
+      paint:{'fill-extrusion-color':'#efe9dc','fill-extrusion-height':['coalesce',['get','render_height'],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':0.9}},
+    {id:'peaks',type:'symbol',source:'omt','source-layer':'mountain_peak',
+      layout:{'text-field':['concat',['coalesce',['get','name:nl'],['get','name']],'\n',['to-string',['get','ele']],' m'],'text-font':['Noto Sans Bold'],'text-size':12,'text-anchor':'bottom','text-offset':[0,-0.4]},
+      paint:{'text-color':'#f5c400','text-halo-color':'rgba(0,0,0,.8)','text-halo-width':1.5}},
+    {id:'places',type:'symbol',source:'omt','source-layer':'place',filter:['in',['get','class'],['literal',['city','town','village','hamlet']]],
+      layout:{'text-field':['coalesce',['get','name:nl'],['get','name']],'text-font':['Noto Sans Bold'],'text-size':['match',['get','class'],['city','town'],15,13]},
+      paint:{'text-color':'#ffffff','text-halo-color':'rgba(0,0,0,.8)','text-halo-width':1.6}}
+  ],
+  terrain:{source:'dem',exaggeration:1},
+  sky:{'sky-color':'#6fa3d6','horizon-color':'#cfe0ee','fog-color':'#dde7ef','sky-horizon-blend':0.5,'horizon-fog-blend':0.7,'fog-ground-blend':0.85,'atmosphere-blend':0.6}
+};
+let m3=null,m3Marks=[],orbitOn=false,orbitRaf=0,cur3=null;
+function stopOrbit(){orbitOn=false;cancelAnimationFrame(orbitRaf);$('#d3Orbit').setAttribute('aria-pressed','false')}
+async function open3D(p){
+  cur3=p;$('#d3Name').textContent=p.name;$('#d3Meta').textContent=metaOf(p);$('#d3Sheet').hidden=false;
+  if(typeof maplibregl==='undefined'){
+    $('#d3Load').hidden=false;
+    try{loadCSS(ML+'.css');await loadScript(ML+'.js')}catch(e){$('#d3Sheet').hidden=true;toast('3D kon niet laden. Check je verbinding.');return}
+  }
+  if(!m3){
+    m3=new maplibregl.Map({container:'d3map',style:STYLE,center:[p.lon,p.lat],zoom:12,pitch:60,bearing:p.az*R2D,maxPitch:85,attributionControl:{compact:true}});
+    m3.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+    m3.on('error',()=>{});
+    ['mousedown','touchstart','wheel'].forEach(ev=>m3.on(ev,stopOrbit));
+    await new Promise(r=>m3.once('load',r));
+  }else m3.resize();
+  $('#d3Load').hidden=true;
+  m3Marks.forEach(m=>m.remove());m3Marks=[];
+  const pin=document.createElement('div');pin.className='pin';pin.textContent=p.name;
+  m3Marks.push(new maplibregl.Marker({element:pin,anchor:'bottom'}).setLngLat([p.lon,p.lat]).addTo(m3));
+  if(S.lat!=null){const me=document.createElement('div');me.className='me';me.textContent='JIJ';
+    m3Marks.push(new maplibregl.Marker({element:me}).setLngLat([S.lon,S.lat]).addTo(m3))}
+  flyFromMe(true);
+}
+function flyFromMe(intro){
+  const p=cur3;if(!p||!m3)return;stopOrbit();
+  const brg=p.az*R2D,zT=p.kind==='peak'?13.6:p.rank>=3?14.4:15.4;
+  if(intro&&S.lat!=null){ // start bij jou, vlieg richting de plaats
+    const t=0.25;m3.jumpTo({center:[S.lon+(p.lon-S.lon)*t,S.lat+(p.lat-S.lat)*t],zoom:Math.max(9,Math.min(13,15.5-Math.log2(p.d/400))),bearing:brg,pitch:65});
+  }
+  m3.flyTo({center:[p.lon,p.lat],zoom:zT,bearing:brg,pitch:72,duration:intro?4200:1800,essential:true,curve:1.2});
+}
+$('#d3Me').onclick=()=>flyFromMe(false);
+$('#d3Top').onclick=()=>{if(!m3||!cur3)return;stopOrbit();m3.easeTo({center:[cur3.lon,cur3.lat],pitch:0,bearing:0,zoom:Math.max(m3.getZoom(),14),duration:1400})};
+$('#d3Orbit').onclick=()=>{
+  if(!m3)return;if(orbitOn){stopOrbit();return}
+  orbitOn=true;$('#d3Orbit').setAttribute('aria-pressed','true');
+  if(m3.getPitch()<45)m3.easeTo({pitch:65,duration:800});
+  let last=performance.now();
+  const step=t=>{if(!orbitOn)return;const dt=t-last;last=t;if(!m3.isEasing())m3.setBearing(m3.getBearing()+dt*0.012);orbitRaf=requestAnimationFrame(step)};
+  orbitRaf=requestAnimationFrame(step);
+};
+$('#d3Close').onclick=()=>{stopOrbit();$('#d3Sheet').hidden=true};
 
 /* ---------- kaart ---------- */
 let map,mk,wedge,aim,pick=null;
