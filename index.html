@@ -32,8 +32,11 @@ button{cursor:pointer}
 :focus-visible{outline:2px solid var(--sign);outline-offset:2px}
 
 header{display:flex;align-items:center;gap:12px;padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--bg);border-bottom:1px solid var(--line)}
-.sign{flex:none;font:700 17px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;background:var(--sign);color:var(--sign-ink);padding:7px 22px 7px 11px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 50%,calc(100% - 12px) 100%,0 100%)}
+.sign{flex:none;border:0;cursor:pointer;font:700 17px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;background:var(--sign);color:var(--sign-ink);padding:7px 22px 7px 11px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 50%,calc(100% - 12px) 100%,0 100%)}
 .status{min-width:0;flex:1;font:500 14px/1.2 var(--display);letter-spacing:.02em;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.sign:active{filter:brightness(.85)}
+.aim{width:34px;height:34px;border-radius:50%;background:var(--sign);border:2px solid var(--sign-ink);box-shadow:0 2px 6px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+.aim svg{width:18px;height:18px;stroke:var(--sign-ink);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .progress{position:absolute;left:0;top:0;height:2px;background:var(--sign);width:0;transition:width .2s;z-index:3}
 
 #stage{flex:1;position:relative;min-height:0;overflow:hidden;background:var(--bg)}
@@ -85,7 +88,7 @@ input[type=range]{width:100%;accent-color:var(--sign)}
 </head>
 <body>
 <header>
-  <div class="sign">Bergblik</div>
+  <button class="sign" id="reset" aria-label="Opnieuw beginnen">Bergblik</button>
   <div class="status" id="status">Geen locatie</div>
 </header>
 
@@ -141,7 +144,7 @@ input[type=range]{width:100%;accent-color:var(--sign)}
     <input id="q" type="search" placeholder="Zoek plaats of plak 46.55, 7.98" enterkeyhint="search" autocomplete="off">
     <button class="btn" id="mGps">GPS</button>
   </div>
-  <div class="hint">Tik op de kaart waar je stond. De gele waaier is je huidige kijkrichting.</div>
+  <div class="hint" id="mHint">Tik op de kaart waar je stond. Sleep daarna de gele knop om de kijkrichting te draaien.</div>
   <div id="map"></div>
   <div class="foot">
     <button class="btn" id="mClose">Sluiten</button>
@@ -549,7 +552,7 @@ $('#tSave').onclick=()=>{
 };
 
 /* ---------- kaart ---------- */
-let map,mk,wedge,pick=null;
+let map,mk,wedge,aim,pick=null;
 function openMap(){
   if(typeof L==='undefined'){toast('De kaart kon niet laden. Open Bergblik via een https-adres.',6000);return}
   $('#mapSheet').hidden=false;
@@ -557,21 +560,41 @@ function openMap(){
     map=L.map('map',{zoomControl:true,attributionControl:true}).setView([S.lat??46.6,S.lon??8.0],S.lat!=null?12:7);
     L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,subdomains:'abc',attribution:'© OpenStreetMap · SRTM · OpenTopoMap'}).addTo(map);
     map.on('click',e=>setPick(e.latlng.lat,e.latlng.lng));
+    map.on('zoomend',()=>{if(pick)drawWedge()});
   }else if(S.lat!=null)map.setView([S.lat,S.lon],Math.max(map.getZoom(),11));
   pick=S.lat!=null?{lat:S.lat,lng:S.lon}:null;
   setTimeout(()=>{map.invalidateSize();if(pick)setPick(pick.lat,pick.lng)},60);
   $('#mUse').disabled=!pick;
 }
+function wedgeR(){ // straal = ~35% van het kaartbeeld, zodat de knop altijd in beeld is
+  const b=map.getBounds(),h=(b.getNorth()-b.getSouth())*111320,w=(b.getEast()-b.getWest())*111320*Math.cos(pick.lat*D2R);
+  return Math.max(150,Math.min(h,w)*0.35);
+}
+function off(lat,lng,az,r){return[lat+r*Math.cos(az)/111320,lng+r*Math.sin(az)/(111320*Math.cos(lat*D2R))]}
+function drawWedge(skipAim){
+  const{lat,lng}=pick,half=hfov()/2,r=wedgeR(),pts=[[lat,lng]];
+  for(let a=-half;a<=half+1e-6;a+=half/6)pts.push(off(lat,lng,(S.heading+a)*D2R,r));
+  if(!wedge)wedge=L.polygon(pts,{color:'#f5c400',weight:1.5,fillOpacity:.18,interactive:false}).addTo(map);else wedge.setLatLngs(pts);
+  const ap=off(lat,lng,S.heading*D2R,r*1.12);
+  if(!aim){
+    aim=L.marker(ap,{draggable:true,autoPan:true,icon:L.divIcon({className:'',iconSize:[34,34],iconAnchor:[17,17],
+      html:'<div class="aim"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4"/></svg></div>'})}).addTo(map);
+    aim.on('drag',e=>{const p=e.target.getLatLng(),{az}=distAz(pick.lat,pick.lng,p.lat,p.lng);S.heading=az*R2D;syncSliders();drawWedge(true);aimHint()});
+    aim.on('dragend',()=>{drawWedge();draw()});
+  }else if(!skipAim)aim.setLatLng(ap);
+}
+function aimHint(){$('#mHint').textContent=`Kijkrichting ${Math.round(S.heading)}° — sleep de gele knop om te draaien.`}
 function setPick(lat,lng){
   pick={lat,lng};$('#mUse').disabled=false;
   if(!mk)mk=L.circleMarker([lat,lng],{radius:8,color:'#1c1700',weight:2,fillColor:'#f5c400',fillOpacity:1}).addTo(map);else mk.setLatLng([lat,lng]);
-  const half=hfov()/2,r=Math.min(S.R,15000),pts=[[lat,lng]];
-  for(let a=-half;a<=half;a+=half/6){const az=(S.heading+a)*D2R;pts.push([lat+r*Math.cos(az)/111320,lng+r*Math.sin(az)/(111320*Math.cos(lat*D2R))])}
-  if(!wedge)wedge=L.polygon(pts,{color:'#f5c400',weight:1,fillOpacity:.15}).addTo(map);else wedge.setLatLngs(pts);
+  drawWedge();aimHint();
 }
 $('#tPlace').onclick=openMap;
 $('#mClose').onclick=()=>{$('#mapSheet').hidden=true};
-$('#mUse').onclick=()=>{if(!pick)return;$('#mapSheet').hidden=true;$('#welcome').hidden=true;setLocation(pick.lat,pick.lng)};
+$('#mUse').onclick=()=>{if(!pick)return;$('#mapSheet').hidden=true;$('#welcome').hidden=true;
+  if(S.dem&&Math.abs(pick.lat-S.lat)<1e-7&&Math.abs(pick.lng-S.lon)<1e-7){draw();return}
+  setLocation(pick.lat,pick.lng)};
+$('#reset').onclick=()=>{location.reload()};
 $('#mGps').onclick=()=>{
   if(!window.isSecureContext){toast('GPS werkt alleen via https.');return}
   if(!navigator.geolocation){toast('GPS niet beschikbaar.');return}
