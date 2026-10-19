@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0f1317">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Bergblik</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* Layout: full-screen viewer — signpost header, photo stage, thumb-reach dock */
+:root{
+  --bg:#0f1317; --panel:#171c22; --panel-2:#1f262e; --line:#2c353f;
+  --fg:#e9edf1; --muted:#8d98a4;
+  --sign:#f5c400;      /* Wanderweg-geel van bergwegwijzers */
+  --sign-ink:#1c1700;
+  --hidden:#8fb3d9;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--body);display:flex;flex-direction:column;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--sign);outline-offset:2px}
+
+header{display:flex;align-items:center;gap:12px;padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--bg);border-bottom:1px solid var(--line)}
+.sign{flex:none;font:700 17px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;background:var(--sign);color:var(--sign-ink);padding:7px 22px 7px 11px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 50%,calc(100% - 12px) 100%,0 100%)}
+.status{min-width:0;flex:1;font:500 14px/1.2 var(--display);letter-spacing:.02em;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.progress{position:absolute;left:0;top:0;height:2px;background:var(--sign);width:0;transition:width .2s;z-index:3}
+
+#stage{flex:1;position:relative;min-height:0;overflow:hidden;background:var(--bg)}
+#cv{position:absolute;inset:0;touch-action:none;display:block}
+
+.welcome{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px max(16px,env(safe-area-inset-left,0px));z-index:2;background:radial-gradient(120% 80% at 50% 100%,#1b2530 0%,var(--bg) 70%)}
+.welcome .card{max-width:420px;width:100%;display:flex;flex-direction:column;gap:16px}
+.welcome h1{margin:0;font:700 40px/1 var(--display);letter-spacing:.01em;text-wrap:balance}
+.welcome h1 span{color:var(--sign)}
+.welcome p{margin:0;color:var(--muted)}
+.steps{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.steps b{font:700 15px/26px var(--display);text-align:center;border:1.5px solid var(--sign);color:var(--sign);height:26px;border-radius:50%}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.btn{border:0;border-radius:10px;padding:12px 16px;font-weight:600;background:var(--panel-2);color:var(--fg)}
+.btn.primary{background:var(--sign);color:var(--sign-ink)}
+.btn:disabled{opacity:.4}
+
+.dock{background:var(--panel);border-top:1px solid var(--line);padding-top:8px;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 8px);padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(10px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:0 2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:5px 12px;font:600 13px/1.2 var(--display);letter-spacing:.05em;text-transform:uppercase}
+.chip[aria-pressed="true"]{background:var(--panel-2);color:var(--fg);border-color:var(--muted)}
+.chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.tools{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.tool{border:0;background:transparent;color:var(--fg);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;border-radius:10px;font:500 12px/1 var(--body)}
+.tool svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.tool[aria-pressed="true"]{background:var(--panel-2);color:var(--sign)}
+
+.adjust{display:grid;gap:10px;padding:6px 6px 2px}
+.sl{display:grid;grid-template-columns:86px 1fr 62px;gap:10px;align-items:center}
+.sl label{font:600 13px/1 var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.sl output{font:600 15px/1 var(--display);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--sign)}
+.sl select{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;grid-column:2/4}
+
+.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:calc(100% - 32px);background:rgba(15,19,23,.92);border:1px solid var(--line);color:var(--fg);padding:9px 14px;border-radius:10px;font-size:14px;z-index:4;pointer-events:none;transition:opacity .25s}
+.toast.off{opacity:0}
+
+.sheet{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+.sheet .bar{display:flex;gap:8px;align-items:center;padding:10px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+.sheet .bar input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;-webkit-user-select:text;user-select:text}
+#map{flex:1;min-height:0;background:var(--panel)}
+.sheet .foot{display:flex;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px)) calc(env(safe-area-inset-bottom,0px) + 10px);border-top:1px solid var(--line)}
+.sheet .foot .btn{flex:1}
+.hint{font-size:13px;color:var(--muted);padding:0 max(12px,env(safe-area-inset-left,0px)) 8px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="sign">Bergblik</div>
+  <div class="status" id="status">Geen locatie</div>
+</header>
+
+<div id="stage">
+  <div class="progress" id="prog"></div>
+  <canvas id="cv" aria-label="Foto met bergruggen en plaatsnamen"></canvas>
+  <div class="welcome" id="welcome">
+    <div class="card">
+      <h1>Welk dorp is <span>dat</span>?</h1>
+      <p>Bergblik legt de bergruggen, toppen en dorpen uit het hoogtemodel over je foto.</p>
+      <ol class="steps">
+        <li><b>1</b><span>Maak of kies een foto van het uitzicht.</span></li>
+        <li><b>2</b><span>De plek komt uit de foto, je GPS of de kaart.</span></li>
+        <li><b>3</b><span>Sleep de gele lijn op de bergrug. Knijp om te zoomen.</span></li>
+      </ol>
+      <div class="row">
+        <button class="btn primary" id="wPhoto">Foto kiezen</button>
+        <button class="btn" id="wHere">Zonder foto, hier rondkijken</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast off" id="toast"></div>
+</div>
+
+<div class="dock">
+  <div class="chips" role="group" aria-label="Lagen">
+    <button class="chip" data-k="peaks" aria-pressed="true"><span class="dot" style="background:var(--sign)"></span>Toppen</button>
+    <button class="chip" data-k="places" aria-pressed="true"><span class="dot" style="background:var(--fg)"></span>Dorpen</button>
+    <button class="chip" data-k="ridges" aria-pressed="true"><span class="dot" style="background:var(--muted)"></span>Ruggen</button>
+    <button class="chip" data-k="hidden" aria-pressed="false"><span class="dot" style="background:var(--hidden)"></span>Achter de berg</button>
+  </div>
+  <div class="adjust" id="adjust" hidden>
+    <div class="sl"><label for="sHead">Richting</label><input type="range" id="sHead" min="0" max="360" step="0.1"><output id="oHead"></output></div>
+    <div class="sl"><label for="sPitch">Kanteling</label><input type="range" id="sPitch" min="-30" max="30" step="0.05"><output id="oPitch"></output></div>
+    <div class="sl"><label for="sF">Zoom</label><input type="range" id="sF" min="2.3" max="6" step="0.005"><output id="oF"></output></div>
+    <div class="sl"><label for="sRoll">Scheef</label><input type="range" id="sRoll" min="-15" max="15" step="0.05"><output id="oRoll"></output></div>
+    <div class="sl"><label for="sH">Ooghoogte</label><input type="range" id="sH" min="0" max="400" step="5"><output id="oH"></output></div>
+    <div class="sl"><label for="sR">Bereik</label><select id="sR"><option value="20000">20 km</option><option value="40000" selected>40 km</option><option value="80000">80 km</option><option value="120000">120 km</option></select></div>
+  </div>
+  <div class="tools">
+    <button class="tool" id="tPhoto"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto</button>
+    <button class="tool" id="tPlace"><svg viewBox="0 0 24 24"><path d="M12 21s-6-6.2-6-11a6 6 0 0 1 12 0c0 4.8-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>Plek</button>
+    <button class="tool" id="tCompass"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Kompas</button>
+    <button class="tool" id="tAdjust" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Bijstellen</button>
+    <button class="tool" id="tSave"><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v6h14v-6"/></svg>Opslaan</button>
+  </div>
+</div>
+
+<input type="file" id="file" accept="image/*" hidden>
+
+<div class="sheet" id="mapSheet" hidden>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Zoek plaats of plak 46.55, 7.98" enterkeyhint="search" autocomplete="off">
+    <button class="btn" id="mGps">GPS</button>
+  </div>
+  <div class="hint">Tik op de kaart waar je stond. De gele waaier is je huidige kijkrichting.</div>
+  <div id="map"></div>
+  <div class="foot">
+    <button class="btn" id="mClose">Sluiten</button>
+    <button class="btn primary" id="mUse" disabled>Gebruik deze plek</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+window.addEventListener('error',e=>{try{toast('Fout: '+(e.message&&e.message!=='Script error.'?e.message:'een script kon niet laden. Open de pagina via https, niet als los bestand.'),7000)}catch(_){}});
+window.addEventListener('unhandledrejection',e=>{try{toast('Fout: '+((e.reason&&e.reason.message)||e.reason),7000)}catch(_){}});
+const D2R=Math.PI/180, R2D=180/Math.PI, EARTH=6371000, KREF=0.13, K=(1-KREF)/(2*EARTH);
+const NR=3600; // stralen: 0.1° per straal
+const $=s=>document.querySelector(s);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const S={lat:null,lon:null,R:40000,hOff:0,heading:0,pitch:0,roll:0,f35:26,img:null,
+  dem:null,rays:null,raw:[],places:[],show:{peaks:true,places:true,ridges:true,hidden:false}};
+const cv=$('#cv'), ctx=cv.getContext('2d');
+let dpr=1,cw=0,ch=0,token=0,C={};
+
+/* ---------- camera & projectie ---------- */
+function frame(){
+  if(S.img){const s=Math.min(cw/S.img.naturalWidth,ch/S.img.naturalHeight);const w=S.img.naturalWidth*s,h=S.img.naturalHeight*s;return{x:(cw-w)/2,y:(ch-h)/2,w,h}}
+  return{x:0,y:0,w:cw,h:ch};
+}
+function longMm(w,h){const a=Math.max(w,h)/Math.max(1,Math.min(w,h));return 43.27*a/Math.sqrt(a*a+1)}
+function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]}
+function camera(){
+  const f=frame(), fpx=Math.max(f.w,f.h)*S.f35/longMm(f.w,f.h);
+  const h=S.heading*D2R,p=S.pitch*D2R,r=S.roll*D2R;
+  const F=[Math.sin(h)*Math.cos(p),Math.cos(h)*Math.cos(p),Math.sin(p)];
+  const R0=[Math.cos(h),-Math.sin(h),0], U0=cross(R0,F);
+  const cr=Math.cos(r),sr=Math.sin(r);
+  const R=[R0[0]*cr+U0[0]*sr,R0[1]*cr+U0[1]*sr,R0[2]*cr+U0[2]*sr];
+  const U=[U0[0]*cr-R0[0]*sr,U0[1]*cr-R0[1]*sr,U0[2]*cr-R0[2]*sr];
+  return{f,fpx,F,R,U,cx:f.x+f.w/2,cy:f.y+f.h/2};
+}
+function pv(c,x,y,z,out){
+  const zz=x*c.F[0]+y*c.F[1]+z*c.F[2]; if(zz<0.05) return false;
+  out[0]=c.cx+c.fpx*(x*c.R[0]+y*c.R[1]+z*c.R[2])/zz;
+  out[1]=c.cy-c.fpx*(x*c.U[0]+y*c.U[1]+z*c.U[2])/zz; return true;
+}
+function vec(az,el){const ce=Math.cos(el);return[Math.sin(az)*ce,Math.cos(az)*ce,Math.sin(el)]}
+
+/* ---------- hoogtedata (Terrarium-tegels, AWS open data) ---------- */
+function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.crossOrigin='anonymous';i.onload=()=>res(i);i.onerror=rej;i.src=src})}
+async function loadDEM(lat,lon,R,onp){
+  const z=R<=45000?11:R<=90000?10:9, n=2**z, N=n*256;
+  const px=(la,lo)=>{const s=Math.sin(la*D2R);return[(lo+180)/360*N,(0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*N]};
+  const dLat=(R+2000)/111320, dLon=(R+2000)/(111320*Math.cos(lat*D2R));
+  const [xa,ya]=px(lat+dLat,lon-dLon),[xb,yb]=px(lat-dLat,lon+dLon);
+  const tx0=Math.floor(xa/256),tx1=Math.floor(xb/256),ty0=Math.floor(ya/256),ty1=Math.floor(yb/256);
+  const W=(tx1-tx0+1)*256,H=(ty1-ty0+1)*256,data=new Float32Array(W*H);
+  const jobs=[];for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++)jobs.push([tx,ty]);
+  const cvs=document.createElement('canvas');cvs.width=cvs.height=256;
+  const g=cvs.getContext('2d',{willReadFrequently:true});
+  let done=0,failed=0,idx=0;
+  async function one(tx,ty){
+    try{
+      const img=await loadImg(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${((tx%n)+n)%n}/${ty}.png`);
+      g.clearRect(0,0,256,256);g.drawImage(img,0,0);
+      const d=g.getImageData(0,0,256,256).data,bx=(tx-tx0)*256,by=(ty-ty0)*256;
+      for(let y=0;y<256;y++){let o=(by+y)*W+bx,k=y*1024;
+        for(let x=0;x<256;x++,k+=4){const h=d[k]*256+d[k+1]+d[k+2]/256-32768;data[o+x]=h<0?0:h}}
+    }catch(e){failed++}
+    onp(++done,jobs.length);
+  }
+  await Promise.all(Array.from({length:8},async()=>{while(idx<jobs.length){const j=jobs[idx++];await one(j[0],j[1])}}));
+  if(failed===jobs.length) throw new Error('Hoogtedata kon niet geladen worden. Check je verbinding.');
+  return{z,n,N,ox:tx0*256,oy:ty0*256,W,H,data,mpp:40075016*Math.cos(lat*D2R)/N};
+}
+function sampler(dem){
+  const{W,H,data,ox,oy,N}=dem;
+  return(la,lo)=>{
+    const s=Math.sin(la*D2R);
+    let x=(lo+180)/360*N-ox-0.5,y=(0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*N-oy-0.5;
+    if(x<0)x=0;if(y<0)y=0;if(x>W-1.001)x=W-1.001;if(y>H-1.001)y=H-1.001;
+    const xi=x|0,yi=y|0,fx=x-xi,fy=y-yi,i=yi*W+xi;
+    const a=data[i],b=data[i+1],c=data[i+W],d=data[i+W+1];
+    const t=a+(b-a)*fx;return t+((c+(d-c)*fx)-t)*fy;
+  };
+}
+
+/* ---------- zichtlijnen ---------- */
+function computeRays(){
+  const smp=sampler(S.dem),lat=S.lat,lon=S.lon,cl=Math.cos(lat*D2R);
+  const h0=Math.max(0,smp(lat,lon))+2+S.hOff;
+  const ds=Math.max(S.dem.mpp*0.75,20),NS=Math.ceil(S.R/ds);
+  const cum=new Float32Array(NR*NS),sky=new Float32Array(NR),skyD=new Float32Array(NR);
+  const rv=[],rb=[];
+  const addR=(az,el,d)=>{const v=vec(az,el);rv.push(v[0],v[1],v[2]);rb.push(d<5000?0:d<15000?1:d<40000?2:3)};
+  for(let i=0;i<NR;i++){
+    const az=i/NR*2*Math.PI,dla=Math.cos(az)/111320,dlo=Math.sin(az)/(111320*cl);
+    let m=-1.5,md=0,vis=false,lastEl=0,lastD=0,pEl=0,pD=-1;const base=i*NS;
+    for(let j=0;j<NS;j++){
+      const d=(j+1)*ds;cum[base+j]=m;
+      const el=Math.atan((smp(lat+d*dla,lon+d*dlo)-d*d*K-h0)/d);
+      if(el>m){
+        if(!vis&&pD>0){if(d-pD>Math.max(250,pD*0.04))addR(az,pEl,pD);pD=-1}
+        m=el;md=d;vis=true;lastEl=el;lastD=d;
+      }else{if(vis){pEl=lastEl;pD=lastD}vis=false}
+    }
+    if(pD>0)addR(az,pEl,pD);
+    sky[i]=m;skyD[i]=md;
+  }
+  const skyV=new Float32Array(NR*3);
+  for(let i=0;i<NR;i++){const v=vec(i/NR*2*Math.PI,sky[i]);skyV[i*3]=v[0];skyV[i*3+1]=v[1];skyV[i*3+2]=v[2]}
+  return{ds,NS,cum,sky,skyD,skyV,h0,rv:new Float32Array(rv),rb:new Uint8Array(rb)};
+}
+
+/* ---------- plaatsen & toppen (OpenStreetMap via Overpass) ---------- */
+async function fetchPlaces(lat,lon,R){
+  const q=`[out:json][timeout:40];(node["place"~"^(city|town|village|hamlet)$"]["name"](around:${R},${lat},${lon});node["natural"="peak"]["name"](around:${R},${lat},${lon}););out body;`;
+  const eps=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+  for(const ep of eps){
+    try{
+      const ac=new AbortController();const t=setTimeout(()=>ac.abort(),45000);
+      const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ac.signal});
+      clearTimeout(t);if(!r.ok)continue;const j=await r.json();return j.elements||[];
+    }catch(e){}
+  }
+  throw new Error('Plaatsnamen konden niet geladen worden.');
+}
+function distAz(la1,lo1,la2,lo2){
+  const dy=(la2-la1)*111320,dx=(lo2-lo1)*111320*Math.cos(la1*D2R);
+  let az=Math.atan2(dx,dy);if(az<0)az+=2*Math.PI;return{d:Math.hypot(dx,dy),az};
+}
+function processPlaces(){
+  const rays=S.rays,smp=sampler(S.dem),out=[];if(!rays)return out;
+  for(const e of S.raw){
+    const t=e.tags||{};if(!t.name)continue;
+    const kind=t.natural==='peak'?'peak':t.place;
+    const{d,az}=distAz(S.lat,S.lon,e.lat,e.lon);if(d<150||d>S.R)continue;
+    const g=Math.max(0,smp(e.lat,e.lon)),ele=parseFloat(t.ele);
+    const hT=kind==='peak'?(isFinite(ele)&&ele<g+200&&ele>g-60?Math.max(ele,g):g):g+8;
+    const el=Math.atan((hT-d*d*K-rays.h0)/d);
+    const i=Math.round(az/(2*Math.PI)*NR)%NR,j=Math.floor(d/rays.ds)-2;
+    let blk=-9;
+    if(j>=0){blk=9;const jj=Math.min(j,rays.NS-1);for(const k of[-1,0,1]){const ii=(i+k+NR)%NR;blk=Math.min(blk,rays.cum[ii*rays.NS+jj])}}
+    const visible=el>=blk-0.12*D2R;
+    out.push({name:t.name,kind,ele:isFinite(ele)?Math.round(ele):Math.round(g),d,az,el,visible,v:vec(az,el),
+      rank:kind==='peak'?(isFinite(ele)?ele:g):({city:4,town:3,village:2,hamlet:1}[kind]||0)});
+  }
+  return out;
+}
+
+/* ---------- tekenen ---------- */
+let raf=0;function draw(){if(!raf)raf=requestAnimationFrame(()=>{raf=0;render()})}
+const P=[0,0];
+function render(){
+  if(!cw)return;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const c=camera(),f=c.f;
+  ctx.fillStyle=C.bg;ctx.fillRect(0,0,cw,ch);
+  if(S.img)ctx.drawImage(S.img,f.x,f.y,f.w,f.h);
+  else{const gr=ctx.createLinearGradient(0,f.y,0,f.y+f.h);gr.addColorStop(0,'#16202b');gr.addColorStop(1,'#2a3846');ctx.fillStyle=gr;ctx.fillRect(f.x,f.y,f.w,f.h)}
+  const R=S.rays;if(!R){hits.length=0;return}
+  ctx.save();ctx.beginPath();ctx.rect(f.x,f.y,f.w,f.h);ctx.clip();
+
+  // skyline-pad (alleen het zichtbare deel, in volgorde van azimut)
+  const i0=Math.round(((S.heading%360+360)%360)/360*NR),span=Math.round(NR*0.3);
+  const segs=[];let seg=[];
+  for(let k=-span;k<=span;k++){
+    const i=((i0+k)%NR+NR)%NR;
+    if(pv(c,R.skyV[i*3],R.skyV[i*3+1],R.skyV[i*3+2],P)){
+      if(seg.length&&Math.abs(P[0]-seg[seg.length-2])>cw*0.5){segs.push(seg);seg=[]}
+      seg.push(P[0],P[1]);
+    }else if(seg.length){segs.push(seg);seg=[]}
+  }
+  if(seg.length)segs.push(seg);
+
+  if(!S.img){ // synthetisch landschap
+    ctx.fillStyle='#10161c';
+    for(const s of segs){ctx.beginPath();ctx.moveTo(s[0],f.y+f.h);for(let k=0;k<s.length;k+=2)ctx.lineTo(s[k],s[k+1]);ctx.lineTo(s[s.length-2],f.y+f.h);ctx.closePath();ctx.fill()}
+  }
+  if(S.show.ridges){
+    const al=S.img?[.85,.6,.42,.3]:[.9,.65,.45,.3],sz=S.img?1.7:1.5;
+    for(let b=3;b>=0;b--){
+      ctx.fillStyle=`rgba(255,255,255,${al[b]})`;
+      for(let n=0;n<R.rb.length;n++){
+        if(R.rb[n]!==b)continue;
+        if(!pv(c,R.rv[n*3],R.rv[n*3+1],R.rv[n*3+2],P))continue;
+        if(P[0]<f.x-2||P[0]>f.x+f.w+2||P[1]<f.y-2||P[1]>f.y+f.h+2)continue;
+        ctx.fillRect(P[0]-sz/2,P[1]-sz/2,sz,sz);
+      }
+    }
+  }
+  ctx.lineJoin='round';
+  for(const s of segs){
+    ctx.beginPath();ctx.moveTo(s[0],s[1]);for(let k=2;k<s.length;k+=2)ctx.lineTo(s[k],s[k+1]);
+    ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=4;ctx.stroke();
+    ctx.strokeStyle=C.sign;ctx.lineWidth=2;ctx.stroke();
+  }
+  drawCompassBar(c);
+  drawLabels(c);
+  ctx.restore();
+}
+function drawCompassBar(c){
+  const f=c.f,y=f.y+f.h-6,names={0:'N',45:'NO',90:'O',135:'ZO',180:'Z',225:'ZW',270:'W',315:'NW'};
+  ctx.font=`600 12px ${C.display}`;ctx.textAlign='center';ctx.textBaseline='alphabetic';
+  for(let a=0;a<360;a+=5){
+    if(!pv(c,...vec(a*D2R,S.pitch*D2R),P))continue;if(P[0]<f.x||P[0]>f.x+f.w)continue;
+    const big=a%15===0;ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(P[0]-1.5,y-(big?9:5)-1,3,(big?9:5)+2);
+    ctx.fillStyle=names[a]?C.sign:'rgba(255,255,255,.8)';ctx.fillRect(P[0]-0.5,y-(big?9:5),1,big?9:5);
+    if(a%45===0||(big&&c.fpx>500)){const t=names[a]||a+'°';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.6)';ctx.strokeText(t,P[0],y-12);ctx.fillText(t,P[0],y-12)}
+  }
+}
+const hits=[];
+function km(d){return d<10000?(d/1000).toFixed(1).replace('.',',')+' km':Math.round(d/1000)+' km'}
+function rrect(x,y,w,h,r){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h)}
+function drawLabels(c){
+  hits.length=0;const f=c.f,items=[];
+  for(const p of S.places){
+    if(!p.visible&&!S.show.hidden)continue;
+    if(p.kind==='peak'?!S.show.peaks:!S.show.places)continue;
+    if(!pv(c,p.v[0],p.v[1],p.v[2],P))continue;
+    if(P[0]<f.x||P[0]>f.x+f.w||P[1]<f.y||P[1]>f.y+f.h)continue;
+    items.push({p,x:P[0],y:P[1]});
+  }
+  // dorpen: pilletjes op de plek, zonder overlap
+  const boxes=[];
+  const pl=items.filter(i=>i.p.kind!=='peak').sort((a,b)=>(b.p.visible-a.p.visible)||(b.p.rank-a.p.rank)||(a.p.d-b.p.d));
+  ctx.textBaseline='middle';ctx.textAlign='left';
+  for(const it of pl){
+    const p=it.p,big=p.rank>=3;ctx.font=`600 ${big?14:12.5}px ${C.body}`;
+    const name=p.name,dist=km(p.d);const w1=ctx.measureText(name).width;ctx.font=`500 11px ${C.display}`;const w2=ctx.measureText(dist).width;
+    const w=w1+w2+20,h=big?22:20,x=it.x-w/2,y=it.y-h-7;
+    if(boxes.some(b=>x<b[0]+b[2]+3&&x+w>b[0]-3&&y<b[1]+b[3]+2&&y+h>b[1]-2))continue;
+    boxes.push([x,y,w,h]);
+    ctx.globalAlpha=p.visible?1:.85;
+    ctx.strokeStyle=p.visible?'rgba(0,0,0,.6)':C.hidden;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(it.x,it.y);ctx.lineTo(it.x,y+h);ctx.stroke();
+    rrect(x,y,w,h,h/2);ctx.fillStyle=p.visible?'rgba(250,250,247,.94)':'rgba(15,19,23,.82)';ctx.fill();
+    if(!p.visible){ctx.setLineDash([3,3]);ctx.strokeStyle=C.hidden;ctx.stroke();ctx.setLineDash([])}
+    ctx.fillStyle=p.visible?'#12161a':C.hidden;ctx.font=`600 ${big?14:12.5}px ${C.body}`;ctx.fillText(name,x+9,y+h/2+.5);
+    ctx.fillStyle=p.visible?'#5b6570':C.hidden;ctx.font=`500 11px ${C.display}`;ctx.fillText(dist,x+13+w1,y+h/2+1);
+    ctx.beginPath();ctx.arc(it.x,it.y,3,0,7);ctx.fillStyle=p.visible?'#fff':C.hidden;ctx.fill();ctx.lineWidth=1.2;ctx.strokeStyle='rgba(0,0,0,.7)';ctx.stroke();
+    ctx.globalAlpha=1;hits.push({x,y,w,h,p});hits.push({x:it.x-10,y:it.y-10,w:20,h:20,p});
+  }
+  // toppen: schuine labels boven de top
+  const pk=items.filter(i=>i.p.kind==='peak').sort((a,b)=>(b.p.visible-a.p.visible)||(b.p.rank-a.p.rank));
+  const xs=[];
+  for(const it of pk){
+    if(xs.some(x=>Math.abs(x-it.x)<17))continue;xs.push(it.x);
+    const p=it.p,top=it.y-26;
+    ctx.strokeStyle=p.visible?C.sign:C.hidden;ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(it.x,it.y-4);ctx.lineTo(it.x,top);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(it.x,it.y-1);ctx.lineTo(it.x-4,it.y-7);ctx.lineTo(it.x+4,it.y-7);ctx.closePath();ctx.fillStyle=p.visible?C.sign:C.hidden;ctx.fill();
+    ctx.save();ctx.translate(it.x+3,top-2);ctx.rotate(-Math.PI/3);
+    ctx.font=`700 14px ${C.display}`;ctx.textBaseline='middle';ctx.textAlign='left';
+    const t=p.name,e=` ${p.ele} m`;ctx.lineWidth=3.5;ctx.strokeStyle='rgba(0,0,0,.7)';ctx.strokeText(t,0,0);
+    ctx.fillStyle=p.visible?'#fff':C.hidden;ctx.fillText(t,0,0);
+    const tw=ctx.measureText(t).width;ctx.font=`500 12px ${C.display}`;ctx.strokeText(e,tw,1);ctx.fillStyle=p.visible?C.sign:C.hidden;ctx.fillText(e,tw,1);
+    ctx.restore();
+    hits.push({x:it.x-12,y:top-60,w:44,h:it.y-top+64,p});
+  }
+}
+
+/* ---------- interactie ---------- */
+const ptrs=new Map();let moved=0,pinch=null;
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=0;pinch=null});
+cv.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId);if(!p)return;
+  const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;moved+=Math.abs(dx)+Math.abs(dy);
+  const fpx=camera().fpx;
+  if(ptrs.size===1){
+    S.heading=((S.heading-dx/fpx*R2D)%360+360)%360;S.pitch=Math.max(-45,Math.min(45,S.pitch+dy/fpx*R2D));
+  }else if(ptrs.size>=2){
+    const [a,b]=[...ptrs.values()],d=Math.hypot(a.x-b.x,a.y-b.y);
+    if(!pinch)pinch={d,f:S.f35};else S.f35=Math.max(10,Math.min(400,pinch.f*d/pinch.d));
+  }
+  syncSliders();draw();
+});
+function up(e){
+  if(ptrs.size===1&&moved<8)tap(e.clientX,e.clientY);
+  ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null;
+}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);pinch=null});
+cv.addEventListener('wheel',e=>{e.preventDefault();S.f35=Math.max(10,Math.min(400,S.f35*Math.exp(-e.deltaY*0.0015)));syncSliders();draw()},{passive:false});
+function tap(cx,cy){
+  const r=cv.getBoundingClientRect(),x=cx-r.left,y=cy-r.top;
+  const h=hits.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);if(!h)return;
+  const p=h.p,type=p.kind==='peak'?'top':({city:'stad',town:'plaats',village:'dorp',hamlet:'gehucht'}[p.kind]||'plaats');
+  toast(`${p.name} · ${type} · ${p.ele} m · ${km(p.d)} · ${Math.round(p.az*R2D)}°${p.visible?'':' · achter een rug'}`,4000);
+}
+
+/* ---------- sliders ---------- */
+const sl={head:$('#sHead'),pitch:$('#sPitch'),f:$('#sF'),roll:$('#sRoll'),h:$('#sH'),r:$('#sR')};
+function hfov(){const c=camera();return 2*Math.atan(c.f.w/2/c.fpx)*R2D}
+function syncSliders(){
+  sl.head.value=S.heading;$('#oHead').textContent=S.heading.toFixed(1)+'°';
+  sl.pitch.value=S.pitch;$('#oPitch').textContent=S.pitch.toFixed(1)+'°';
+  sl.f.value=Math.log(S.f35);$('#oF').textContent=Math.round(S.f35)+' mm';
+  sl.roll.value=S.roll;$('#oRoll').textContent=S.roll.toFixed(1)+'°';
+  sl.h.value=S.hOff;$('#oH').textContent='+'+S.hOff+' m';
+}
+sl.head.oninput=()=>{S.heading=+sl.head.value;syncSliders();draw()};
+sl.pitch.oninput=()=>{S.pitch=+sl.pitch.value;syncSliders();draw()};
+sl.f.oninput=()=>{S.f35=Math.exp(+sl.f.value);syncSliders();draw()};
+sl.roll.oninput=()=>{S.roll=+sl.roll.value;syncSliders();draw()};
+let hT;sl.h.oninput=()=>{S.hOff=+sl.h.value;syncSliders();clearTimeout(hT);hT=setTimeout(()=>{if(S.dem){S.rays=computeRays();S.places=processPlaces();status();draw()}},250)};
+sl.r.onchange=()=>{S.R=+sl.r.value;if(S.lat!=null)compute()};
+document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const k=b.dataset.k;S.show[k]=!S.show[k];b.setAttribute('aria-pressed',S.show[k]);draw()});
+$('#tAdjust').onclick=()=>{const a=$('#adjust');a.hidden=!a.hidden;$('#tAdjust').setAttribute('aria-pressed',!a.hidden);requestAnimationFrame(resize)};
+
+/* ---------- status & toast ---------- */
+let tT;function toast(m,ms=3200){const t=$('#toast');t.textContent=m;t.classList.remove('off');clearTimeout(tT);tT=setTimeout(()=>t.classList.add('off'),ms)}
+function busy(m,frac){$('#status').textContent=m;$('#prog').style.width=frac==null?'0':(frac*100).toFixed(0)+'%'}
+function status(){
+  $('#prog').style.width='0';
+  if(S.lat==null){$('#status').textContent='Geen locatie';return}
+  const n=S.places.filter(p=>p.visible).length;
+  $('#status').textContent=`${S.lat.toFixed(4)}, ${S.lon.toFixed(4)} · ${S.R/1000} km${S.places.length?` · ${n} zichtbaar`:''}`;
+}
+
+/* ---------- laden ---------- */
+async function compute(){
+  const t=++token;S.dem=null;S.rays=null;S.places=[];S.raw=[];draw();
+  try{
+    busy('Hoogtedata laden…',0.02);
+    const placesP=fetchPlaces(S.lat,S.lon,S.R).catch(e=>e);
+    const dem=await loadDEM(S.lat,S.lon,S.R,(d,n)=>{if(t===token)busy(`Hoogtedata ${d}/${n}`,d/n*0.7)});
+    if(t!==token)return;S.dem=dem;busy('Zichtlijnen berekenen…',0.75);
+    await new Promise(r=>setTimeout(r,30));S.rays=computeRays();if(t!==token)return;draw();
+    busy('Plaatsnamen ophalen…',0.85);
+    const raw=await placesP;if(t!==token)return;
+    if(raw instanceof Error){toast(raw.message+' Bergruggen werken wel.');status();return}
+    S.raw=raw;S.places=processPlaces();status();draw();
+  }catch(e){if(t===token){status();toast(e.message||'Er ging iets mis bij het laden.',5000)}}
+}
+function setLocation(lat,lon){S.lat=lat;S.lon=lon;status();compute()}
+function locateMe(){
+  if(!window.isSecureContext){toast('GPS werkt alleen via https. Kies je plek op de kaart.',5000);openMap();return}
+  if(!navigator.geolocation){toast('GPS niet beschikbaar. Kies je plek op de kaart.');openMap();return}
+  busy('GPS zoeken…');
+  navigator.geolocation.getCurrentPosition(p=>{toast('Huidige GPS-locatie gebruikt');setLocation(p.coords.latitude,p.coords.longitude)},
+    err=>{status();toast(err&&err.code===1?'GPS geweigerd. Zet locatie aan voor Safari in Instellingen › Privacy, of kies je plek op de kaart.':'Geen GPS-fix. Kies je plek op de kaart.',6000);openMap()},{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+}
+async function loadPhoto(file){
+  const url=URL.createObjectURL(file),img=new Image();img.src=url;
+  try{await img.decode()}catch(e){toast('Deze foto kan ik niet openen.');return}
+  S.img=img;$('#welcome').hidden=true;S.pitch=0;S.roll=0;
+  let ex=null;try{if(typeof exifr!=='undefined')ex=await exifr.parse(file,{tiff:true,exif:true,gps:true})}catch(e){}
+  let dir=false;
+  S.f35=(ex&&ex.FocalLengthIn35mmFormat)||26;
+  if(ex&&ex.GPSImgDirection!=null&&isFinite(ex.GPSImgDirection)){S.heading=+ex.GPSImgDirection;dir=true}
+  syncSliders();draw();
+  const msg=[];
+  if(ex&&isFinite(ex.latitude)&&isFinite(ex.longitude)){msg.push('Locatie uit de foto');setLocation(ex.latitude,ex.longitude)}
+  else if(S.lat==null){msg.push('Geen GPS in de foto, ik pak je huidige locatie');locateMe()}
+  else{msg.push('Geen GPS in de foto, vorige plek behouden')}
+  msg.push(dir?'richting ook':'sleep de gele lijn op de bergrug');
+  toast(msg.join(' · '),5000);
+}
+$('#file').onchange=e=>{const f=e.target.files[0];if(f)loadPhoto(f);e.target.value=''};
+$('#tPhoto').onclick=$('#wPhoto').onclick=()=>$('#file').click();
+$('#wHere').onclick=()=>{$('#welcome').hidden=true;locateMe()};
+
+/* ---------- kompas ---------- */
+function backVec(a,b,g){
+  a*=D2R;b*=D2R;g*=D2R;const ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cg=Math.cos(g),sg=Math.sin(g);
+  const x=-ca*sg-sa*sb*cg,y=-sa*sg+ca*sb*cg,z=-cb*cg;
+  return{h:(Math.atan2(x,y)*R2D+360)%360,p:Math.asin(Math.max(-1,Math.min(1,z)))*R2D};
+}
+$('#tCompass').onclick=async()=>{
+  try{
+    if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+      if(await DeviceOrientationEvent.requestPermission()!=='granted')throw 0;
+    }
+  }catch(e){toast('Geen toegang tot het kompas.');return}
+  const s=[];
+  const h=e=>{let a;if(e.webkitCompassHeading!=null)a=360-e.webkitCompassHeading;else if(e.absolute&&e.alpha!=null)a=e.alpha;else return;if(e.beta==null)return;s.push(backVec(a,e.beta,e.gamma||0))};
+  addEventListener('deviceorientationabsolute',h);addEventListener('deviceorientation',h);
+  toast('Richt je telefoon zoals bij de foto…',1800);
+  await new Promise(r=>setTimeout(r,1600));
+  removeEventListener('deviceorientationabsolute',h);removeEventListener('deviceorientation',h);
+  if(!s.length){toast('Geen kompas gevonden op dit apparaat.');return}
+  const last=s.slice(-12);let sx=0,sy=0,sp=0;for(const v of last){sx+=Math.sin(v.h*D2R);sy+=Math.cos(v.h*D2R);sp+=v.p}
+  S.heading=(Math.atan2(sx,sy)*R2D+360)%360;S.pitch=Math.max(-30,Math.min(30,sp/last.length));
+  syncSliders();draw();toast(`Kompas ${Math.round(S.heading)}°. Kan 5–10° afwijken: sleep om fijn uit te lijnen.`,4500);
+};
+
+/* ---------- opslaan ---------- */
+$('#tSave').onclick=()=>{
+  if(!S.rays){toast('Nog niets om op te slaan.');return}
+  cv.toBlob(async b=>{
+    const file=new File([b],'bergblik.jpg',{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file]});return}catch(e){if(e.name==='AbortError')return}}
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='bergblik.jpg';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  },'image/jpeg',0.92);
+};
+
+/* ---------- kaart ---------- */
+let map,mk,wedge,pick=null;
+function openMap(){
+  if(typeof L==='undefined'){toast('De kaart kon niet laden. Open Bergblik via een https-adres.',6000);return}
+  $('#mapSheet').hidden=false;
+  if(!map){
+    map=L.map('map',{zoomControl:true,attributionControl:true}).setView([S.lat??46.6,S.lon??8.0],S.lat!=null?12:7);
+    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,subdomains:'abc',attribution:'© OpenStreetMap · SRTM · OpenTopoMap'}).addTo(map);
+    map.on('click',e=>setPick(e.latlng.lat,e.latlng.lng));
+  }else if(S.lat!=null)map.setView([S.lat,S.lon],Math.max(map.getZoom(),11));
+  pick=S.lat!=null?{lat:S.lat,lng:S.lon}:null;
+  setTimeout(()=>{map.invalidateSize();if(pick)setPick(pick.lat,pick.lng)},60);
+  $('#mUse').disabled=!pick;
+}
+function setPick(lat,lng){
+  pick={lat,lng};$('#mUse').disabled=false;
+  if(!mk)mk=L.circleMarker([lat,lng],{radius:8,color:'#1c1700',weight:2,fillColor:'#f5c400',fillOpacity:1}).addTo(map);else mk.setLatLng([lat,lng]);
+  const half=hfov()/2,r=Math.min(S.R,15000),pts=[[lat,lng]];
+  for(let a=-half;a<=half;a+=half/6){const az=(S.heading+a)*D2R;pts.push([lat+r*Math.cos(az)/111320,lng+r*Math.sin(az)/(111320*Math.cos(lat*D2R))])}
+  if(!wedge)wedge=L.polygon(pts,{color:'#f5c400',weight:1,fillOpacity:.15}).addTo(map);else wedge.setLatLngs(pts);
+}
+$('#tPlace').onclick=openMap;
+$('#mClose').onclick=()=>{$('#mapSheet').hidden=true};
+$('#mUse').onclick=()=>{if(!pick)return;$('#mapSheet').hidden=true;$('#welcome').hidden=true;setLocation(pick.lat,pick.lng)};
+$('#mGps').onclick=()=>{
+  if(!window.isSecureContext){toast('GPS werkt alleen via https.');return}
+  if(!navigator.geolocation){toast('GPS niet beschikbaar.');return}
+  navigator.geolocation.getCurrentPosition(p=>{map.setView([p.coords.latitude,p.coords.longitude],13);setPick(p.coords.latitude,p.coords.longitude)},err=>toast(err&&err.code===1?'GPS geweigerd in Safari-instellingen.':'Geen GPS-fix.'),{enableHighAccuracy:true,timeout:15000});
+};
+$('#q').addEventListener('keydown',async e=>{
+  if(e.key!=='Enter')return;const v=e.target.value.trim();if(!v)return;
+  const m=v.match(/^(-?\d+(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d+(?:[.,]\d+)?)$/);
+  if(m){const la=parseFloat(m[1].replace(',','.')),lo=parseFloat(m[2].replace(',','.'));map.setView([la,lo],13);setPick(la,lo);return}
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(v));const j=await r.json();
+    if(!j.length){toast('Niets gevonden voor “'+v+'”.');return}
+    map.setView([+j[0].lat,+j[0].lon],13);setPick(+j[0].lat,+j[0].lon);
+  }catch(err){toast('Zoeken lukt nu niet.')}
+});
+
+/* ---------- start ---------- */
+function resize(){
+  const r=$('#stage').getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,2.5);cw=r.width;ch=r.height;
+  cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);cv.style.width=cw+'px';cv.style.height=ch+'px';render();
+}
+C={bg:css('--bg'),sign:css('--sign'),hidden:css('--hidden'),display:css('--display'),body:css('--body')};
+addEventListener('resize',resize);
+syncSliders();resize();
+if(document.fonts)document.fonts.ready.then(draw);
+</script>
+</body>
+</html>
