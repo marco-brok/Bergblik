@@ -256,16 +256,29 @@ function computeRays(){
 
 /* ---------- plaatsen & toppen (OpenStreetMap via Overpass) ---------- */
 async function fetchPlaces(lat,lon,R){
-  const q=`[out:json][timeout:40];(node["place"~"^(city|town|village|hamlet)$"]["name"](around:${R},${lat},${lon});node["natural"="peak"]["name"](around:${R},${lat},${lon}););out body;`;
-  const eps=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
-  for(const ep of eps){
-    try{
-      const ac=new AbortController();const t=setTimeout(()=>ac.abort(),45000);
-      const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ac.signal});
-      clearTimeout(t);if(!r.ok)continue;const j=await r.json();return j.elements||[];
-    }catch(e){}
-  }
-  throw new Error('Plaatsnamen konden niet geladen worden.');
+  // cache per ~1 km-cel, zodat opnieuw openen direct is
+  const key=`bb:${lat.toFixed(2)},${lon.toFixed(2)},${R}`;
+  try{const c=JSON.parse(localStorage.getItem(key));if(c&&Date.now()-c.t<30*864e5)return c.e}catch(e){}
+  // bbox is veel sneller dan around; gehuchten alleen dichtbij
+  const dLat=R/111320,dLon=R/(111320*Math.cos(lat*D2R)),f=n=>n.toFixed(4);
+  const bb=`(${f(lat-dLat)},${f(lon-dLon)},${f(lat+dLat)},${f(lon+dLon)})`;
+  const hr=Math.min(R,15000);
+  const q=`[out:json][timeout:25];(node["place"~"^(city|town|village)$"]["name"]${bb};node["natural"="peak"]["name"]${bb};node["place"="hamlet"]["name"](around:${hr},${lat},${lon}););out qt;`;
+  const eps=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+  const ctrls=eps.map(()=>new AbortController());
+  const timer=setTimeout(()=>ctrls.forEach(c=>c.abort()),30000);
+  try{
+    // alle servers tegelijk, de snelste wint
+    const els=await Promise.any(eps.map(async(ep,i)=>{
+      const r=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctrls[i].signal});
+      if(!r.ok)throw new Error(r.status);const j=await r.json();if(!j.elements)throw new Error('leeg');return j.elements;
+    }));
+    ctrls.forEach(c=>c.abort());
+    const slim=els.map(e=>({lat:e.lat,lon:e.lon,tags:{name:e.tags.name,place:e.tags.place,natural:e.tags.natural,ele:e.tags.ele}}));
+    try{localStorage.setItem(key,JSON.stringify({t:Date.now(),e:slim}))}catch(e){}
+    return slim;
+  }catch(e){throw new Error('Plaatsnamen konden niet geladen worden.')}
+  finally{clearTimeout(timer)}
 }
 function distAz(la1,lo1,la2,lo2){
   const dy=(la2-la1)*111320,dx=(lo2-lo1)*111320*Math.cos(la1*D2R);
